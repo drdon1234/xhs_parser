@@ -254,12 +254,41 @@ def format_output(data: dict):
             print(url)
 
 
-async def parse_xhs_link(short_url: str):
+def normalize_xhs_url(url: str) -> str:
+    """规范化小红书URL，支持短链接和长链接"""
+    # 如果是短链接（xhslink.com），需要重定向
+    if "xhslink.com" in url:
+        return None  # 返回None表示需要重定向
+    
+    # 如果是长链接，直接使用
+    if "www.xiaohongshu.com" in url:
+        # 确保URL是完整的（包含协议）
+        if not url.startswith("http://") and not url.startswith("https://"):
+            url = "https://" + url
+        return url
+    
+    # 其他情况，尝试作为完整URL使用
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    
+    # 默认添加https协议
+    return "https://" + url
+
+
+async def parse_xhs_link(input_url: str):
     """主函数：解析小红书链接"""
     try:
-        # 1. 获取重定向后的完整URL
-        full_url = await get_redirect_url(short_url)
-        print(f"重定向URL: {full_url}\n")
+        # 1. 规范化URL，判断是否需要重定向
+        normalized_url = normalize_xhs_url(input_url)
+        
+        if normalized_url is None:
+            # 需要重定向（短链接）
+            full_url = await get_redirect_url(input_url)
+            print(f"重定向URL: {full_url}\n")
+        else:
+            # 直接使用长链接
+            full_url = normalized_url
+            print(f"使用URL: {full_url}\n")
         
         # 2. 获取页面内容
         html = await fetch_page(full_url)
@@ -280,6 +309,10 @@ async def parse_xhs_link(short_url: str):
 async def main():
     """主入口函数"""
     # 示例：解析提供的短链接
+    # 支持三种格式：
+    # 1. 短链接：http://xhslink.com/o/xxxxx
+    # 2. 长链接（explore）：https://www.xiaohongshu.com/explore/xxxxx
+    # 3. 长链接（discovery/item）：https://www.xiaohongshu.com/discovery/item/xxxxx
     short_url = "http://xhslink.com/o/554d8r4UZF2"
     await parse_xhs_link(short_url)
 
