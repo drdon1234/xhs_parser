@@ -173,22 +173,15 @@ def parse_note_data(data: dict) -> dict:
     title = note_data.get("title", "")
     desc = note_data.get("desc", "")
 
-    # 提取用户信息
+    # 提取用户信息：统一使用 user.nickName 和 user.userId
     author_name = ""
     author_id = ""
     if user_data:
-        author_name = user_data.get("nickName", "") or user_data.get("nickname", "") or user_data.get("name", "")
-        author_id = user_data.get("userId", "") or user_data.get("user_id", "") or user_data.get("id", "")
+        author_name = user_data.get("nickName", "")
+        author_id = user_data.get("userId", "")
 
-    if not author_name or not author_id:
-        if "user" in note_data:
-            user_info = note_data["user"]
-            if not author_name:
-                author_name = user_info.get("nickName", "") or user_info.get("nickname", "") or user_info.get("name", "")
-            if not author_id:
-                author_id = user_info.get("userId", "") or user_info.get("user_id", "") or user_info.get("id", "")
-
-    timestamp = note_data.get("time", 0) or note_data.get("timestamp", 0) or note_data.get("createTime", 0)
+    # 提取时间戳：统一使用 time 字段
+    timestamp = note_data.get("time", 0)
     if timestamp:
         dt = datetime.fromtimestamp(timestamp / 1000)
         publish_time = dt.strftime("%Y-%m-%d")
@@ -214,7 +207,7 @@ def parse_note_data(data: dict) -> dict:
         elif video_url and video_url.startswith("//"):
             video_url = "https:" + video_url
     else:
-        # 提取图集直链：统一使用 imageList[].url
+        # 提取图集直链：统一使用 imageList[].url（元素为dict类型）
         image_list = note_data.get("imageList", [])
         if image_list:
             for img in image_list:
@@ -227,17 +220,11 @@ def parse_note_data(data: dict) -> dict:
                             elif url.startswith("http://"):
                                 url = url.replace("http://", "https://", 1)
                             image_urls.append(url)
-                elif isinstance(img, str):
-                    if "picasso-static" not in img and "fe-platform" not in img:
-                        if img.startswith("//"):
-                            img = "https:" + img
-                        elif img.startswith("http://"):
-                            img = img.replace("http://", "https://", 1)
-                        image_urls.append(img)
 
     desc = clean_topic_tags(desc)
     
-    return {
+    # 准备返回数据
+    result = {
         "type": note_type,
         "title": title,
         "desc": desc,
@@ -247,6 +234,8 @@ def parse_note_data(data: dict) -> dict:
         "video_url": video_url,
         "image_urls": image_urls,
     }
+    
+    return result
 
 
 # ============================================================================
