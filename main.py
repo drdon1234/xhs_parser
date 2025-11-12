@@ -157,6 +157,9 @@ def parse_note_data_from_meta(html: str) -> dict:
         if match:
             author_id = match.group(1)
 
+    # 清理简介中的话题标签
+    desc = clean_topic_tags(desc)
+
     return {
         "type": note_type,
         "title": title,
@@ -247,6 +250,22 @@ def extract_initial_state(html: str) -> dict:
         end_debug = min(len(json_str), error_pos + 200)
         error_msg = f"JSON解析失败: {e}\n错误位置: {error_pos}\n附近内容: {json_str[start_debug:end_debug]}"
         raise Exception(error_msg)
+
+
+def clean_topic_tags(text: str) -> str:
+    """清理简介中的话题标签，将#标签[话题]#格式改为#标签
+    
+    Args:
+        text: 原始文本
+        
+    Returns:
+        清理后的文本
+    """
+    if not text:
+        return text
+    # 匹配 #标签[话题]# 格式，替换为 #标签
+    pattern = r'#([^#\[]+)\[话题\]#'
+    return re.sub(pattern, r'#\1', text)
 
 
 def parse_note_data(data: dict) -> dict:
@@ -406,6 +425,9 @@ def parse_note_data(data: dict) -> dict:
                             img = img.replace("http://", "https://", 1)
                         image_urls.append(img)
 
+    # 清理简介中的话题标签
+    desc = clean_topic_tags(desc)
+    
     return {
         "type": note_type,
         "title": title,
@@ -457,7 +479,7 @@ def get_ua_and_extraction_path(link_type: str) -> tuple:
         # 但这里保持原逻辑，因为parse_xhs_link会根据重定向后的URL重新判断
         return (False, "JSON")  # 移动端UA, JSON提取（实际会被重定向后的URL覆盖）
     elif link_type == "分享长链":
-        return (True, "JSON+meta")  # 桌面端UA, JSON+meta提取
+        return (True, "JSON+meta")  # 桌面端UA, JSON+meta提取（JSON失败时fallback到meta）
     elif link_type == "探索页长链":
         return (False, "JSON")  # 移动端UA, JSON提取
     elif link_type == "用户页长链":
@@ -614,20 +636,6 @@ def safe_print(text: str):
             print(text.encode('ascii', errors='replace').decode('ascii'))
 
 
-def print_extraction_flow(extraction_path: str):
-    """打印提取数据流程"""
-    safe_print("提取数据流程:")
-    if extraction_path == "JSON":
-        safe_print("  ├─ 尝试从 window.__INITIAL_STATE__ 提取JSON数据")
-        safe_print("  │   ├─ 成功 → 解析JSON数据")
-        safe_print("  │   │   └─ 成功 → 使用JSON数据")
-    elif extraction_path == "JSON+meta":
-        safe_print("  ├─ 尝试从 window.__INITIAL_STATE__ 提取JSON数据")
-        safe_print("  │   ├─ 成功 → 解析JSON数据")
-        safe_print("  │   │   └─ 失败（缺少字段）→ 切换到meta标签提取")
-        safe_print("  │   └─ 备用方案：从HTML meta标签提取完整信息")
-
-
 async def test_single_link(link_info: dict, index: int, total: int):
     """测试单个链接"""
     print("=" * 80)
@@ -635,23 +643,6 @@ async def test_single_link(link_info: dict, index: int, total: int):
     print("=" * 80)
     print()
     print(f"URL: {link_info['url']}")
-
-    # 识别链接类型
-    link_type = get_link_type(link_info['url'])
-    print(f"链接类型: {link_type}")
-
-    # 获取UA和提取路径
-    use_desktop_ua, extraction_path = get_ua_and_extraction_path(link_type)
-    actual_ua = "桌面端" if use_desktop_ua else "移动端"
-    print(f"使用的UA: {actual_ua}")
-    print(f"数据提取路径: {extraction_path}")
-
-    # 检查UA是否匹配预期
-    if actual_ua != link_info['expected_ua']:
-        print(f"[警告] 预期UA为 {link_info['expected_ua']}，实际使用 {actual_ua}")
-
-    print()
-    print_extraction_flow(extraction_path)
     print()
 
     try:
@@ -663,7 +654,6 @@ async def test_single_link(link_info: dict, index: int, total: int):
         content_type = "视频" if note_type == 'video' else "图集"
 
         safe_print("提取结果:")
-        safe_print(f"提取路径: {extraction_path}")
         safe_print(f"内容类型：{content_type}")
         safe_print(f"\n标题：{note_data.get('title', '')}")
         safe_print(f"\n简介：")
@@ -696,15 +686,13 @@ async def test_single_link(link_info: dict, index: int, total: int):
 
         return {
             "success": True,
-            "has_media": has_media,
-            "ua_match": actual_ua == link_info['expected_ua']
+            "has_media": has_media
         }
     except Exception as e:
         print(f"[错误] 解析失败: {e}")
         return {
             "success": False,
             "has_media": False,
-            "ua_match": False,
             "error": str(e)
         }
 
@@ -712,7 +700,7 @@ async def test_single_link(link_info: dict, index: int, total: int):
 async def test_all_links():
     """测试所有链接"""
     print("=" * 80)
-    print("UA和数据提取路径测试")
+    print("测试")
     print("=" * 80)
     print()
     print()
@@ -721,7 +709,6 @@ async def test_all_links():
     for i, link_info in enumerate(TEST_LINKS, 1):
         result = await test_single_link(link_info, i, len(TEST_LINKS))
         result["name"] = link_info["name"]
-        result["link_type"] = get_link_type(link_info['url'])
         results.append(result)
         print()
 
@@ -733,75 +720,12 @@ async def test_all_links():
 
     total = len(results)
     success_count = sum(1 for r in results if r.get('success') and r.get('has_media'))
-    ua_match_count = sum(1 for r in results if r.get('ua_match'))
     error_count = sum(1 for r in results if not r.get('success'))
 
     print(f"总测试数: {total}")
     print(f"成功获取媒体直链: {success_count}/{total}")
-    print(f"UA匹配预期: {ua_match_count}/{total}")
     print(f"测试异常: {error_count}/{total}")
     print()
-
-    # 按链接类型统计
-    print("按链接类型统计:")
-    print("-" * 80)
-    print()
-
-    link_types = {}
-    for r in results:
-        link_type = r['link_type']
-        if link_type not in link_types:
-            link_types[link_type] = {
-                "total": 0,
-                "success": 0,
-                "ua_match": 0,
-                "paths": {}
-            }
-
-        link_types[link_type]["total"] += 1
-        if r.get('success') and r.get('has_media'):
-            link_types[link_type]["success"] += 1
-        if r.get('ua_match'):
-            link_types[link_type]["ua_match"] += 1
-
-        # 统计提取路径
-        use_desktop_ua, extraction_path = get_ua_and_extraction_path(link_type)
-        if extraction_path not in link_types[link_type]["paths"]:
-            link_types[link_type]["paths"][extraction_path] = 0
-        link_types[link_type]["paths"][extraction_path] += 1
-
-    for link_type, stats in link_types.items():
-        print(f"{link_type}:")
-        print(f"  总数: {stats['total']}")
-        print(f"  成功: {stats['success']}/{stats['total']}")
-        print(f"  UA匹配: {stats['ua_match']}/{stats['total']}")
-        print(f"  提取路径分布:")
-        for path, count in stats['paths'].items():
-            print(f"    - {path}: {count}")
-        print()
-
-    # 详细结果
-    print("=" * 80)
-    print("详细结果")
-    print("=" * 80)
-    print()
-
-    for r in results:
-        link_info = next(link for link in TEST_LINKS if link['name'] == r['name'])
-        link_type = r['link_type']
-        use_desktop_ua, extraction_path = get_ua_and_extraction_path(link_type)
-        actual_ua = "桌面端" if use_desktop_ua else "移动端"
-
-        status = "[成功]" if r.get('success') and r.get('has_media') else "[失败]"
-        ua_status = "[匹配]" if r.get('ua_match') else "[不匹配]"
-
-        note_type = "视频" if link_info['name'].startswith("视频") else "图集"
-
-        print(f"{status} {r['name']}")
-        print(f"  UA: {actual_ua} (预期: {link_info['expected_ua']}) {ua_status}")
-        print(f"  提取路径: {extraction_path}")
-        print(f"  媒体类型: {note_type}")
-        print()
 
 
 if __name__ == "__main__":
